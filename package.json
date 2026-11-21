@@ -1,0 +1,16 @@
+{
+  "name": "piecebypiece",
+  "version": "0.13.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "netlify dev",
+    "build": "node --check public/organizer.js && node --check public/reveal.js && node --check public/board.js && node --check netlify/functions/create-invitations.mjs && node --check netlify/functions/launch-experience.mjs && node --check netlify/functions/participant-status.mjs && node --check netlify/functions/reveal-piece.mjs && node --check netlify/functions/public-board.mjs && node --check netlify/functions/add-participant.mjs && node --check netlify/functions/update-experience.mjs && node --check netlify/functions/remove-participant.mjs && node --check netlify/functions/reassign-pieces.mjs && node --check netlify/functions/regenerate-invitation.mjs && node --check public/manage.js && node --check public/auth.js && node --check public/script.js && node --check public/supabase-client.js && node --check public/supabase-config.js"
+  },
+  "dependencies": {
+    "sharp": "^0.34.3"
+  },
+  "devDependencies": {
+    "netlify-cli": "^23.0.0"
+  }
+}
