@@ -1,0 +1,17 @@
+const json=(statusCode,body)=>({statusCode,headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store'},body:JSON.stringify(body)});
+export async function handler(event){
+  if(event.httpMethod!=='POST')return json(405,{error:'Method not allowed.'});
+  const url=String(process.env.SUPABASE_URL||'').replace(/\/$/,'');const anon=process.env.SUPABASE_ANON_KEY;const key=process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if(!url||!anon||!key)return json(503,{error:'The launch service is not configured yet.'});
+  const auth=event.headers.authorization||'';const token=auth.startsWith('Bearer ')?auth.slice(7):'';if(!token)return json(401,{error:'Please sign in again.'});
+  const verified=await fetch(`${url}/auth/v1/user`,{headers:{apikey:anon,authorization:`Bearer ${token}`}});if(!verified.ok)return json(401,{error:'Your sign-in session has expired.'});const user=await verified.json();
+  let body;try{body=JSON.parse(event.body||'{}')}catch{return json(400,{error:'Invalid request.'})}const id=String(body.experienceId||'');if(!/^[0-9a-f-]{36}$/i.test(id))return json(400,{error:'Invalid experience.'});
+  const headers={apikey:key,authorization:`Bearer ${key}`,'content-type':'application/json'};const api=`${url}/rest/v1`;
+  const er=await fetch(`${api}/experiences?id=eq.${id}&select=id,owner_id,status,piece_count,expires_at`,{headers});if(!er.ok)return json(502,{error:'Could not load experience.'});const exp=(await er.json())[0];if(!exp||exp.owner_id!==user.id)return json(404,{error:'Experience not found.'});if(exp.status!=='draft')return json(409,{error:'This experience is not a draft.'});if(exp.expires_at&&new Date(exp.expires_at).getTime()<=Date.now())return json(409,{error:'The expiry time has passed. Extend the expiry in Manage before launching.'});
+  const pr=await fetch(`${api}/participants?experience_id=eq.${id}&select=id,invitation_status`,{headers});const participants=pr.ok?await pr.json():[];const activeParticipantIds=new Set(participants.filter(p=>p.invitation_status!=='revoked').map(p=>p.id));const xr=await fetch(`${api}/puzzle_pieces?experience_id=eq.${id}&select=id,image_piece_path,participant_id`,{headers});const pieces=xr.ok?await xr.json():[];
+  if(!activeParticipantIds.size)return json(400,{error:'Add at least one active participant before launching.'});if(pieces.length!==exp.piece_count||pieces.some(p=>!p.image_piece_path||!activeParticipantIds.has(p.participant_id)))return json(400,{error:'The puzzle tiles and participant assignments are not ready yet. Assign every piece to an active participant before launching.'});
+  const update=await fetch(`${api}/experiences?id=eq.${id}&owner_id=eq.${user.id}`,{method:'PATCH',headers:{...headers,Prefer:'return=representation'},body:JSON.stringify({status:'active',launched_at:new Date().toISOString(),updated_at:new Date().toISOString()})});if(!update.ok)return json(502,{error:'Could not launch this experience.'});
+  await fetch(`${api}/participants?experience_id=eq.${id}&invitation_status=neq.revoked`,{method:'PATCH',headers:{...headers,Prefer:'return=minimal'},body:JSON.stringify({invitation_status:'sent'})});
+  await fetch(`${api}/reveal_events`,{method:'POST',headers:{...headers,Prefer:'return=minimal'},body:JSON.stringify({experience_id:id,event_type:'experience_launched',actor_user_id:user.id})});
+  return json(200,{message:'Your experience is now live. Participants can open their private invitation links.',status:'active'});
+}
